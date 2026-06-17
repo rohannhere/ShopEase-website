@@ -1,0 +1,61 @@
+pipeline {
+    agent any
+
+    environment {
+        SSH_CRED = 'jenkins-WorkerNode-1'               // Jenkins credential ID
+        SERVER_IP = '172.31.20.247'          // Your Deploy EC2 IP (private)
+        REMOTE_USER = 'ubuntu' 
+        WEB_DIR = '/var/www/html/shopease'
+    }
+
+    stages {
+        stage('Clone Repo') {
+            steps {
+                git url: 'https://github.com/rohannhere/ShopEase-website.git', branch: 'master'
+            }
+        }
+
+        
+        stage('Install and configure Apache') {
+            steps {
+                sshagent(credentials: ["${SSH_CRED}"]) {
+                    sh '''
+                        echo "Installing nginx on server..."
+                        ssh -o StrictHostKeyChecking=no ${REMOTE_USER}@${SERVER_IP} '
+                            sudo apt update &&
+                            sudo apt install nginx -y &&
+                            sudo systemctl start nginx &&
+                            sudo systemctl enable nginx
+                        '
+                    '''
+                }
+            }
+        }
+
+        stage('Deploy to nginx Server') {
+            steps {
+                sshagent(credentials: ["${SSH_CRED}"]) {
+                    sh '''
+                        echo "Cleaning old files on server..."
+                        ssh -o StrictHostKeyChecking=no ${REMOTE_USER}@${SERVER_IP} "sudo rm -rf ${WEB_DIR}/*"
+
+                        echo "Uploading new files to /tmp on server..."
+                        scp -r about.html contact.html index.html products.html style.css ${REMOTE_USER}@${SERVER_IP}:/tmp/
+
+                        echo "Deploying files to Apache directory..."
+                        ssh -o StrictHostKeyChecking=no ${REMOTE_USER}@${SERVER_IP} "sudo cp -r /tmp/index.html /tmp/about.html /tmp/contact.html /tmp/products.html /tmp/style.css ${WEB_DIR}/"
+                    '''
+                }
+            }
+        }
+    }
+    
+    post {
+        success {
+            echo '✅ Application deployed successfully!'
+        }
+        failure {
+            echo '❌ Deployment failed...'
+        }
+    }
+}
